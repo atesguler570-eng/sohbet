@@ -80,6 +80,7 @@ $('#logoutBtn').addEventListener('click', async () => {
 
 /* ---------- Boot ---------- */
 async function boot() {
+  checkForUpdates();
   try {
     const d = await api('/api/me');
     me = d.user;
@@ -96,6 +97,36 @@ async function boot() {
   } else if (convs.length) {
     openConversation(convs[0].id);
   }
+}
+
+const APK_INSTALLED = 2;
+async function checkForUpdates() {
+  try {
+    const res = await fetch('/version.json');
+    if (!res.ok) return;
+    const v = await res.json();
+    const stored = localStorage.getItem('sohbet-web');
+    if (!stored) { localStorage.setItem('sohbet-web', v.web); }
+    else if (stored !== v.web) {
+      const auto = localStorage.getItem('sohbet-autoupdate') !== 'off';
+      if (auto) { localStorage.setItem('sohbet-web', v.web); location.reload(); return; }
+      const toast = document.getElementById('updateToast');
+      if (toast) {
+        toast.style.display = 'block';
+        toast.textContent = 'Yeni sürüm hazır — Güncelle';
+        toast.onclick = () => { localStorage.setItem('sohbet-web', v.web); location.reload(); };
+      }
+    }
+    // APK varsa ve daha yeni sürüm varsa bildir
+    if (window.AkisAndroid && v.apk && v.apk > APK_INSTALLED) {
+      const toast = document.getElementById('updateToast');
+      if (toast) {
+        toast.style.display = 'block';
+        toast.textContent = 'Yeni APK sürümü var — İndirmek için dokun';
+        toast.onclick = () => { window.location.href = '/apk.html'; };
+      }
+    }
+  } catch { /* çevrimdışı */ }
 }
 
 /* ---------- Socket ---------- */
@@ -728,6 +759,7 @@ async function loadSettings() {
 
     <div class="settings-h">📱 Uygulama</div>
     <div class="set-row"><label>Önbelleği temizle</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="clearCache()">Temizle</button></div>
+    ${toggleRow('autoUpdate', 'Otomatik güncelleme', s.autoUpdate)}
 
     <div class="settings-h">☁️ Depolama</div>
     ${toggleRow('autoDelete', 'Otomatik silme sistemi', s.autoDelete)}
@@ -757,6 +789,7 @@ async function toggleSetting(key, el) {
 }
 async function saveSetting(key, value) {
   currentSettings[key] = value;
+  if (key === 'autoUpdate') localStorage.setItem('sohbet-autoupdate', value ? 'on' : 'off');
   await api('/api/settings', { method: 'PATCH', body: { [key]: value } });
   applySettings(currentSettings);
 }
