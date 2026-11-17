@@ -310,7 +310,7 @@ app.post('/api/conversations/:id/read', requireAuth, handle((req, res) => {
 /* ---------- Gönderiler / Feed / Reels ---------- */
 function removeFile(name) { if (!name) return; try { fs.unlinkSync(path.join(UPLOAD_DIR, name)); } catch {} }
 
-const POST_COLS = `p.id, p.media_type, p.media_file, p.poster_file, p.caption, p.created_at,
+const POST_COLS = `p.id, p.media_type, p.media_file, p.poster_file, p.caption, p.created_at, p.views, p.category,
   u.id AS user_id, u.username, u.display_name, u.avatar`;
 
 function mapPost(r, meId) {
@@ -321,6 +321,8 @@ function mapPost(r, meId) {
     posterUrl: r.poster_file ? `/media/${r.poster_file}` : null,
     caption: r.caption,
     createdAt: r.created_at,
+    views: r.views || 0,
+    category: r.category || '',
     likeCount: r.like_count || 0,
     commentCount: r.comment_count || 0,
     liked: Boolean(r.liked),
@@ -332,14 +334,25 @@ app.get('/api/feed', optionalUser, handle((req, res) => {
   const me = req.user ? req.user.id : 0;
   const before = Number(req.query.before) || now() + 1;
   const limit = Math.min(Number(req.query.limit) || 20, 50);
+  const tag = String(req.query.tag || '').trim();
+  const category = String(req.query.category || '').trim();
+  const s = settingsOf(req.user || {});
+  const wordFilter = String(s.wordFilter || '').split(',').map((w) => w.trim()).filter(Boolean);
+  let filter = 'p.created_at < ? AND p.deleted_at IS NULL';
+  const args = [before];
+  if (tag) { filter += ' AND p.caption LIKE ?'; args.push('%#' + tag.replace(/^#/, '') + '%'); }
+  if (category) { filter += ' AND p.category = ?'; args.push(category); }
+  for (const w of wordFilter) { filter += ' AND p.caption NOT LIKE ?'; args.push('%' + w + '%'); }
+  filter += " AND p.id NOT IN (SELECT post_id FROM hidden_posts WHERE user_id = ?)";
+  args.push(me);
   const rows = db.prepare(`
     SELECT ${POST_COLS},
       (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
     FROM posts p JOIN users u ON u.id = p.user_id
-    WHERE p.created_at < ? AND p.deleted_at IS NULL
-    ORDER BY p.created_at DESC LIMIT ?`).all(me, before, limit);
+    WHERE ${filter}
+    ORDER BY p.created_at DESC LIMIT ?`).all(me, ...args, limit);
   res.json({ posts: rows.map((r) => mapPost(r, me)) });
 }));
 
@@ -363,8 +376,9 @@ app.post('/api/posts', requireAuth, upload.fields([{ name: 'media', maxCount: 1 
   if (!media) return res.status(400).json({ error: 'Bir fotoğraf veya video seçmelisin.' });
   const mediaType = media.mimetype.startsWith('video/') ? 'video' : 'image';
   const caption = String(req.body.caption || '').slice(0, 2000);
-  const info = db.prepare('INSERT INTO posts (user_id, media_type, media_file, poster_file, caption, created_at) VALUES (?,?,?,?,?,?)')
-    .run(req.user.id, mediaType, media.filename, poster?.filename || null, caption, now());
+  const category = String(req.body.category || '').slice(0, 40);
+  const info = db.prepare('INSERT INTO posts (user_id, media_type, media_file, poster_file, caption, created_at, category) VALUES (?,?,?,?,?,?,?)')
+    .run(req.user.id, mediaType, media.filename, poster?.filename || null, caption, now(), category);
   const row = db.prepare(`SELECT ${POST_COLS},
       (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
@@ -432,6 +446,8 @@ app.get('/api/posts/:id/comments', handle((req, res) => {
 }));
 
 app.post('/api/posts/:id/comments', requireAuth, handle((req, res) => {
+  const perms = settingsOf(req.user);
+  if (!perms.commentsEnabled) return res.status(403).json({ error: 'Yorumlar kapalı.' });
   const postId = Number(req.params.id);
   const text = String(req.body.text || '').trim().slice(0, 1000);
   if (!text) return res.status(400).json({ error: 'Yorum boş olamaz.' });
@@ -607,6 +623,7 @@ const DEFAULT_SETTINGS = {
   largeText: false,
   keyboardNav: false,
   sensitiveContentFilter: true,
+  videoQuality: 'high',
   wordFilter: '',
   hideUnwanted: true,
   interestReset: false,
@@ -920,6 +937,53 @@ app.post('/api/me/deactivate', requireAuth, handle((req, res) => {
   db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(req.user.id, token);
   audit(req.user.id, 'deactivated', req);
   res.json({ ok: true });
+}));
+
+/* ---------- Keşfet / Reels ekleri ---------- */
+app.post('/api/posts/:id/view', optionalUser, handle((req, res) => {
+  const postId = Number(req.params.id);
+  db.prepare('UPDATE posts SET views = views + 1 WHERE id = ?').run(postId);
+  res.json({ ok: true });
+}));
+
+app.post('/api/posts/:id/hide', requireAuth, handle((req, res) => {
+  const postId = Number(req.params.id);
+  db.prepare('INSERT OR IGNORE INTO hidden_posts (user_id, post_id, created_at) VALUES (?,?,?)').run(req.user.id, postId, now());
+  res.json({ ok: true });
+}));
+
+app.post('/api/posts/reset-interests', requireAuth, handle((req, res) => {
+  db.prepare('DELETE FROM hidden_posts WHERE user_id = ?').run(req.user.id);
+  audit(req.user.id, 'interests_reset', req);
+  res.json({ ok: true });
+}));
+
+app.get('/api/trending', optionalUser, handle((req, res) => {
+  const rows = db.prepare(`SELECT p.caption FROM posts p WHERE p.created_at > ? AND p.deleted_at IS NULL`).all(now() - 7 * 24 * 60 * 60 * 1000);
+  const counts = new Map();
+  for (const r of rows) {
+    for (const m of r.caption.matchAll(/#([\p{L}\p{N}_]{1,40})/gu)) {
+      const tag = m[1].toLocaleLowerCase('tr');
+      counts.set(tag, (counts.get(tag) || 0) + 1);
+    }
+  }
+  const trending = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([tag, count]) => ({ tag, count }));
+  res.json({ trending });
+}));
+
+app.get('/api/categories', (_req, res) => {
+  res.json({ categories: ['Oyun', 'Teknoloji', 'Eğlence', 'Spor', 'Müzik', 'Moda', 'Yemek', 'Seyahat', 'Bilim', 'Haber'] });
+});
+
+app.get('/api/creator/stats', requireAuth, handle((req, res) => {
+  const me = req.user.id;
+  const totals = db.prepare(`SELECT COALESCE(SUM(views),0) AS views, COUNT(*) AS posts,
+      (SELECT COUNT(*) FROM likes l JOIN posts p2 ON p2.id = l.post_id WHERE p2.user_id = ?) AS likes,
+      (SELECT COUNT(*) FROM comments c JOIN posts p3 ON p3.id = c.post_id WHERE p3.user_id = ?) AS comments
+    FROM posts WHERE user_id = ?`).get(me, me, me);
+  const followers = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE followee_id = ?').get(me).c;
+  const top = db.prepare(`SELECT ${POST_COLS}, (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count, 0 AS comment_count, 0 AS liked FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? ORDER BY p.views DESC LIMIT 3`).all(me);
+  res.json({ views: totals.views, posts: totals.posts, likes: totals.likes, comments: totals.comments, followers, top: top.map((r) => mapPost(r, me)) });
 }));
 
 /* ---------- Statik ---------- */
