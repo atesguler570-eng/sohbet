@@ -93,6 +93,15 @@ db.exec(`
     PRIMARY KEY (blocker_id, blocked_id)
   );
 
+  CREATE TABLE IF NOT EXISTS reports (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target     TEXT NOT NULL,
+    reason     TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'open',
+    created_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS audit_logs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -149,6 +158,11 @@ function ensureColumn(table, column, definition) {
 ensureColumn('users', 'cover', 'cover TEXT');
 ensureColumn('users', 'bio', "bio TEXT NOT NULL DEFAULT ''");
 ensureColumn('users', 'settings', "settings TEXT NOT NULL DEFAULT '{}'");
+ensureColumn('users', 'role', "role TEXT NOT NULL DEFAULT 'user'");
+ensureColumn('users', 'suspended', 'suspended INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'verified', 'verified INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'account_type', "account_type TEXT NOT NULL DEFAULT 'personal'");
+ensureColumn('users', 'email', "email TEXT NOT NULL DEFAULT ''");
 ensureColumn('posts', 'deleted_at', 'deleted_at INTEGER');
 ensureColumn('messages', 'expires_at', 'expires_at INTEGER');
 
