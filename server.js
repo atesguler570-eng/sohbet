@@ -49,6 +49,9 @@ const publicUser = (u) => ({
   bio: u.bio,
   avatar: u.avatar,
   cover: u.cover || null,
+  role: u.role || 'user',
+  verified: Boolean(u.verified),
+  accountType: u.account_type || 'personal',
 });
 function audit(userId, action, req) {
   try {
@@ -130,6 +133,7 @@ app.post('/api/login', handle((req, res) => {
   if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
     return res.status(401).json({ error: 'Kullanici adi veya sifre hatali.' });
   }
+  if (user.suspended) return res.status(403).json({ error: 'Hesabınız askıya alındı.' });
   const token = crypto.randomBytes(32).toString('hex');
   const stamp = now();
   db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen, user_agent) VALUES (?,?,?,?,?)')
@@ -536,13 +540,44 @@ const DEFAULT_SETTINGS = {
   privateAccount: true,
   showOnline: true,
   showLastSeen: true,
+  activityStatus: true,
+  profileVisibility: 'public',
+  postsVisibility: 'public',
+  storiesVisibility: 'everyone',
+  followersVisibility: 'everyone',
+  followingVisibility: 'everyone',
   allowMessages: 'everyone',
   allowComments: true,
   allowTagging: true,
   allowMentions: true,
+  allowMessageRequests: true,
+  readReceipts: true,
+  typingIndicator: true,
+  messageFilter: true,
+  groupInvites: true,
   showFollowerCount: true,
   showLikedPosts: true,
+  showSaveCount: true,
+  showFollowingCount: true,
+  showPublicBadge: true,
+  twoFactorAuth: false,
+  securityAlerts: true,
+  suspiciousLoginAlert: true,
+  allowHotspot: true,
+  allowStories: true,
   notifications: true,
+  likeNotifications: true,
+  commentNotifications: true,
+  followNotifications: true,
+  newFollowerNotifications: true,
+  messageNotifications: true,
+  storyNotifications: true,
+  liveNotifications: true,
+  mentionNotifications: true,
+  tagNotifications: true,
+  friendSuggestions: true,
+  systemNotifications: true,
+  updateNotifications: true,
   sound: true,
   vibration: true,
   dnd: true,
@@ -552,19 +587,72 @@ const DEFAULT_SETTINGS = {
   dataSaver: false,
   fontSize: 'medium',
   language: 'tr',
+  country: 'TR',
+  dateFormat: 'dd.MM.yyyy',
+  timeFormat: '24h',
   theme: 'dark',
-  profileVisibility: 'public',
+  accent: '#6c7bff',
+  fontFamily: 'default',
+  appIcon: 'default',
+  transitionEffects: true,
+  animation: true,
+  background: 'default',
+  profileDesign: 'default',
   reduceMotion: false,
   highContrast: false,
-  autoDownloadMedia: 'always',
+  colorBlindMode: false,
+  screenReader: false,
+  captions: false,
+  autoCaptions: false,
+  largeText: false,
+  keyboardNav: false,
+  sensitiveContentFilter: true,
+  wordFilter: '',
+  hideUnwanted: true,
+  interestReset: false,
+  feedOrder: 'recommended',
+  recommendedPosts: true,
+  followingFeed: true,
+  showLikeCount: true,
+  commentsEnabled: true,
+  allowDownload: false,
+  allowShare: true,
+  allowStoryHide: true,
+  closeFriends: true,
+  storyArchive: true,
+  storyDuration: '24h',
   autoSaveDrafts: true,
+  tagApproval: false,
   locationSharing: true,
+  autoSave: true,
+  nearFriends: true,
+  friendRecommendations: true,
+  searchable: true,
+  followersVisibilityList: 'everyone',
+  hideFriendList: false,
+  showOnlineStatus: true,
   analytics: true,
+  adsPersonalization: true,
+  personalization: true,
+  recommendationAlgorithm: 'balanced',
+  experimentalFeatures: false,
+  betaProgram: false,
   autoUpdate: true,
+  batterySaver: false,
+  permissionsCamera: true,
+  permissionsMicrophone: true,
+  permissionsPhotos: true,
+  permissionsLocation: false,
+  wifiOnly: false,
+  autoDownloadMedia: 'always',
   autoDelete: true,
   cloudSync: true,
   autoBackup: true,
-  wifiOnly: false,
+  offlineMode: true,
+  storageAlerts: true,
+  retentionDays: '30',
+  accountType: 'personal',
+  showCreateDate: true,
 };
 
 function settingsOf(u) {
@@ -766,6 +854,74 @@ app.get('/Sohbet.apk', (req, res) => {
   res.sendFile(file);
 });
 
+/* ---------- Rapor / Yönetim ---------- */
+app.post('/api/reports', requireAuth, handle((req, res) => {
+  const target = String(req.body.target || '').slice(0, 200);
+  const reason = String(req.body.reason || '').slice(0, 500);
+  if (!target || !reason) return res.status(400).json({ error: 'Yer ve sebep gerekli.' });
+  db.prepare('INSERT INTO reports (reporter_id, target, reason, created_at) VALUES (?,?,?,?)').run(req.user.id, target, reason, now());
+  audit(req.user.id, 'report', req);
+  res.status(201).json({ ok: true });
+}));
+
+function requireAdmin(req, res, next) {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Yetkiniz yok.' });
+  next();
+}
+
+app.get('/api/admin/overview', requireAuth, requireAdmin, handle((req, res) => {
+  const users = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
+  const posts = db.prepare('SELECT COUNT(*) AS c FROM posts').get().c;
+  const openReports = db.prepare("SELECT COUNT(*) AS c FROM reports WHERE status = 'open'").get().c;
+  const suspended = db.prepare('SELECT COUNT(*) AS c FROM users WHERE suspended = 1').get().c;
+  res.json({ users, posts, openReports, suspended });
+}));
+
+app.get('/api/admin/reports', requireAuth, requireAdmin, handle((req, res) => {
+  const rows = db.prepare("SELECT r.id, r.target, r.reason, r.created_at, u.username AS reporter FROM reports r JOIN users u ON u.id = r.reporter_id ORDER BY r.created_at DESC LIMIT 50").all();
+  res.json({ reports: rows });
+}));
+
+app.get('/api/admin/users', requireAuth, requireAdmin, handle((req, res) => {
+  const rows = db.prepare("SELECT id, username, display_name, role, suspended, verified, account_type, created_at FROM users ORDER BY created_at DESC LIMIT 100").all();
+  res.json({ users: rows });
+}));
+
+app.post('/api/admin/verify/:id', requireAuth, requireAdmin, handle((req, res) => {
+  db.prepare('UPDATE users SET verified = CASE WHEN verified = 1 THEN 0 ELSE 1 END WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+}));
+
+app.post('/api/admin/suspend/:id', requireAuth, requireAdmin, handle((req, res) => {
+  db.prepare('UPDATE users SET suspended = CASE WHEN suspended = 1 THEN 0 ELSE 1 END WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+}));
+
+app.patch('/api/me/username', requireAuth, handle((req, res) => {
+  const username = String(req.body.username || '').trim().toLowerCase();
+  if (!/^[a-z0-9._]{3,20}$/.test(username)) return res.status(400).json({ error: 'Geçersiz kullanıcı adı.' });
+  if (db.prepare('SELECT 1 FROM users WHERE username = ? AND id <> ?').get(username, req.user.id)) return res.status(409).json({ error: 'Bu kullanıcı adı alınmış.' });
+  db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, req.user.id);
+  audit(req.user.id, 'username_changed', req);
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  res.json({ user: publicUser(user) });
+}));
+
+app.patch('/api/me/accountType', requireAuth, handle((req, res) => {
+  const type = req.body.type === 'creator' ? 'creator' : 'personal';
+  db.prepare('UPDATE users SET account_type = ? WHERE id = ?').run(type, req.user.id);
+  audit(req.user.id, 'account_type_changed', req);
+  res.json({ ok: true, accountType: type });
+}));
+
+app.post('/api/me/deactivate', requireAuth, handle((req, res) => {
+  db.prepare('UPDATE users SET suspended = 1 WHERE id = ?').run(req.user.id);
+  const token = parseCookies(req.headers.cookie).sid || '';
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(req.user.id, token);
+  audit(req.user.id, 'deactivated', req);
+  res.json({ ok: true });
+}));
+
 /* ---------- Statik ---------- */
 app.use('/media', express.static(UPLOAD_DIR, { maxAge: '30d' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -849,6 +1005,7 @@ function seedDemo() {
   db.prepare('UPDATE conversations SET last_message_at = ? WHERE id = ?').run(stamp, cid);
 }
 seedDemo();
+try { db.prepare("UPDATE users SET role = 'admin' WHERE username = 'demo' AND role = 'user'").run(); } catch {}
 function lanAddress() {
   for (const list of Object.values(os.networkInterfaces())) {
     for (const net of list || []) {
