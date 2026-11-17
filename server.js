@@ -560,6 +560,7 @@ const DEFAULT_SETTINGS = {
   autoSaveDrafts: true,
   locationSharing: true,
   analytics: true,
+  autoUpdate: true,
   autoDelete: true,
   cloudSync: true,
   autoBackup: true,
@@ -656,6 +657,13 @@ app.get('/api/mutes', requireAuth, handle((req, res) => {
   const rows = db.prepare('SELECT u.* FROM mutes m JOIN users u ON u.id = m.muted_id WHERE m.muter_id = ?').all(req.user.id);
   res.json({ users: rows.map(publicUser) });
 }));
+
+/* ---------- Sürüm & Otomatik Güncelleme ---------- */
+const WEB_BUILD = '2026-11-21.1';
+const APK_VERSION = 2;
+app.get('/version.json', (req, res) => {
+  res.json({ web: WEB_BUILD, apk: APK_VERSION, apkUrl: '/apk.html' });
+});
 
 /* ---------- Bildirimler ---------- */
 function addNotification(userId, type, text) {
