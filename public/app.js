@@ -433,7 +433,7 @@ function showView(name) {
   if (name === 'chat') { chat.style.display = 'flex'; }
   else { chat.style.display = 'none'; document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1)).style.display = 'block'; }
   document.querySelectorAll('.bottom-nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
-  if (name === 'feed') loadFeed();
+  if (name === 'feed') { loadChips(); loadFeed(); }
   if (name === 'reels') loadReels();
   if (name === 'profile') loadProfile(me?.username);
 }
@@ -444,11 +444,22 @@ document.querySelectorAll('.bottom-nav button').forEach((b) => {
 
 document.getElementById('feedSearch').addEventListener('input', () => loadFeed());
 
+let feedTag = '';
+let feedCategory = '';
+
 async function loadFeed() {
   const q = document.getElementById('feedSearch')?.value.trim() || '';
   let d;
   if (q) {
-    d = await api('/api/search?q=' + encodeURIComponent(q));
+    if (q.startsWith('#')) {
+      d = await api('/api/feed?tag=' + encodeURIComponent(q.slice(1)) + '&limit=30');
+    } else {
+      d = await api('/api/search?q=' + encodeURIComponent(q));
+    }
+  } else if (feedTag) {
+    d = await api('/api/feed?tag=' + encodeURIComponent(feedTag) + '&limit=30');
+  } else if (feedCategory) {
+    d = await api('/api/feed?category=' + encodeURIComponent(feedCategory) + '&limit=30');
   } else {
     d = await api('/api/feed?limit=30');
   }
@@ -465,13 +476,32 @@ async function loadFeed() {
         <button class="fa-btn" data-like="${p.id}">${p.liked ? '❤️' : '🤍'} ${p.likeCount || 0}</button>
         <button class="fa-btn" data-comment="${p.id}">💬 ${p.commentCount || 0}</button>
         <button class="fa-btn" data-save="${p.id}">🔖</button>
+        <button class="fa-btn" data-view="${p.id}">👁 ${p.views || 0}</button>
+        <button class="fa-btn" data-hide="${p.id}" title="İlgilenmiyorum">🚫</button>
       </div>`;
     card.addEventListener('click', () => openPost(p.id));
     grid.appendChild(card);
+    api('/api/posts/' + p.id + '/view', { method: 'POST' }).catch(() => {});
   }
   grid.querySelectorAll('[data-like]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); api('/api/posts/' + b.dataset.like + '/like', { method: 'POST' }).then(() => loadFeed()); }));
   grid.querySelectorAll('[data-comment]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openComments(b.dataset.comment); }));
   grid.querySelectorAll('[data-save]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); api('/api/posts/' + b.dataset.save + '/save', { method: 'POST' }).then(() => loadFeed()); }));
+  grid.querySelectorAll('[data-hide]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); api('/api/posts/' + b.dataset.hide + '/hide', { method: 'POST' }).then(() => loadFeed()); }));
+}
+
+async function loadChips() {
+  try {
+    const d = await api('/api/categories');
+    const bar = document.getElementById('chipBar');
+    bar.innerHTML = `<button class="chip ${!feedCategory && !feedTag ? 'active' : ''}" data-all="1">Tümü</button>` +
+      d.categories.map((c) => `<button class="chip ${feedCategory === c ? 'active' : ''}" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('');
+    bar.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => { feedCategory = feedCategory === b.dataset.cat ? '' : b.dataset.cat; feedTag = ''; loadFeed(); loadChips(); }));
+    bar.querySelectorAll('[data-all]').forEach((b) => b.addEventListener('click', () => { feedCategory = ''; feedTag = ''; loadFeed(); loadChips(); }));
+    const t = await api('/api/trending');
+    const tbar = document.getElementById('trendingBar');
+    tbar.innerHTML = t.trending.length ? '🔥 Trend: ' + t.trending.map((x) => `<button class="chip ${feedTag === x.tag ? 'active' : ''}" data-tag="${escapeHtml(x.tag)}">#${escapeHtml(x.tag)} (${x.count})</button>`).join('') : '';
+    tbar.querySelectorAll('[data-tag]').forEach((b) => b.addEventListener('click', () => { feedTag = feedTag === b.dataset.tag ? '' : b.dataset.tag; feedCategory = ''; loadFeed(); loadChips(); }));
+  } catch {}
 }
 
 async function loadReels() {
@@ -482,13 +512,14 @@ async function loadReels() {
     const reel = document.createElement('div');
     reel.className = 'reel';
     reel.innerHTML = `<video src="${p.mediaUrl}" ${p.posterUrl ? 'poster="' + p.posterUrl + '"' : ''} loop playsinline></video>
-      <div class="overlay"><strong>${escapeHtml(p.author.displayName)}</strong><br>${escapeHtml(p.caption || '')}</div>
+      <div class="overlay"><strong>${escapeHtml(p.author.displayName)}</strong> <span style="opacity:.8">👁 ${p.views || 0}</span><br>${escapeHtml(p.caption || '')}</div>
       <div class="reel-actions">
         <button class="fa-btn" data-like="${p.id}">${p.liked ? '❤️' : '🤍'} ${p.likeCount || 0}</button>
         <button class="fa-btn" data-comment="${p.id}">💬 ${p.commentCount || 0}</button>
         <button class="fa-btn" data-save="${p.id}">🔖</button>
         <button class="fa-btn" data-mute="${p.id}">🔊</button>
         <button class="fa-btn" data-share="${p.id}">↗</button>
+        <button class="fa-btn" data-hide="${p.id}" title="İlgilenmiyorum">🚫</button>
       </div>
       <div class="heart-anim">❤️</div>`;
     wrap.appendChild(reel);
@@ -516,6 +547,9 @@ async function loadReels() {
   wrap.querySelectorAll('[data-save]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); api('/api/posts/' + b.dataset.save + '/save', { method: 'POST' }).then(() => loadReels()); }));
   wrap.querySelectorAll('[data-mute]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const v = b.closest('.reel').querySelector('video'); v.muted = !v.muted; b.textContent = v.muted ? '🔇' : '🔊'; }));
   wrap.querySelectorAll('[data-share]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const url = window.location.origin + '/?reel=' + b.dataset.share; if (navigator.share) navigator.share({ url }); else prompt('Bağlantıyı kopyalayın:', url); }));
+  wrap.querySelectorAll('[data-hide]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); api('/api/posts/' + b.dataset.hide + '/hide', { method: 'POST' }).then(() => loadReels()); }));
+  // her görünen videoya view sayacı
+  wrap.querySelectorAll('.reel video').forEach((v) => api('/api/posts/' + v.closest('.reel').querySelector('[data-like]').dataset.like + '/view', { method: 'POST' }).catch(() => {}));
   // autoplay on scroll
   const videos = wrap.querySelectorAll('video');
   const obs = new IntersectionObserver((entries) => {
@@ -546,11 +580,13 @@ async function loadProfile(username) {
             <button class="btn secondary" style="width:auto;padding:6px 12px;" onclick="document.getElementById('coverInput').click()">Arka plan değiştir</button>
             <button class="btn" style="width:auto;padding:6px 12px;" onclick="uploadVideo()">Video yükle</button>
             <button class="btn secondary" style="width:auto;padding:6px 12px;" onclick="showSaved()">Kaydettiklerim</button>
+            ${(me && me.accountType === 'creator') || (me && me.role === 'admin') ? '<button class="btn secondary" style="width:auto;padding:6px 12px;" onclick="toggleCreatorPanel()">📊 Üretici Paneli</button>' : ''}
           </div>
           <input type="file" id="coverInput" hidden accept="image/*" />
         ` : (me ? `<button class="btn" style="margin-top:8px;max-width:160px;" onclick="toggleFollow('${u.username}', this)">${d.isFollowing ? 'Takipten çık' : 'Takip et'}</button>` : '')}
       </div>
     </div>
+    <div id="creatorPanel" class="profile-grid" style="display:none;grid-template-columns:repeat(2,1fr);gap:8px;"></div>
     <div class="profile-grid" id="profileGrid"></div>`;
   const grid = document.getElementById('profileGrid');
   for (const p of d.posts) {
@@ -583,6 +619,24 @@ async function showSaved() {
       grid.appendChild(div);
     }
   } catch (e) { alert(e.message); }
+}
+
+async function toggleCreatorPanel() {
+  const el = document.getElementById('creatorPanel');
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'grid';
+  el.innerHTML = '<div>Yükleniyor...</div>';
+  try {
+    const d = await api('/api/creator/stats');
+    el.innerHTML = `
+      <div class="set-row" style="grid-column:1/-1;"><label>👁 Toplam görüntülenme</label><span>${d.views}</span></div>
+      <div class="set-row" style="grid-column:1/-1;"><label>🎬 Gönderi</label><span>${d.posts}</span></div>
+      <div class="set-row" style="grid-column:1/-1;"><label>❤️ Toplam beğeni</label><span>${d.likes}</span></div>
+      <div class="set-row" style="grid-column:1/-1;"><label>💬 Toplam yorum</label><span>${d.comments}</span></div>
+      <div class="set-row" style="grid-column:1/-1;"><label>👥 Takipçi</label><span>${d.followers}</span></div>
+      ${d.top.length ? '<div class="set-row" style="grid-column:1/-1;"><label>🏆 En popüler</label></div>' + d.top.map((p) => `<div style="border-radius:8px;overflow:hidden;"><img src="${p.mediaUrl}" style="width:100%;aspect-ratio:1/1;object-fit:cover;" /></div>`).join('') : ''}`;
+  } catch (e) { el.innerHTML = '<div>' + escapeHtml(e.message) + '</div>'; }
 }
 
 async function toggleFollow(username, btn) {
@@ -652,6 +706,12 @@ async function loadComments(id) {
       list.appendChild(div);
     }
   } catch (e) { document.getElementById('commentList').innerHTML = '<div style="color:var(--danger);padding:20px;">'+escapeHtml(e.message)+'</div>'; }
+}
+
+function reportPost() {
+  const reason = prompt('Şikayet sebebi:');
+  if (!reason || !activePostId) return;
+  api('/api/reports', { method: 'POST', body: { target: 'post#' + activePostId, reason } }).then(() => alert('Bildirildi, teşekkürler')).catch((e) => alert(e.message));
 }
 
 async function submitComment() {
@@ -851,6 +911,7 @@ const SECTION_RENDERERS = {
   feed: (s) => `
     ${header('📰 Akış ve İçerik')}
     ${selectRow('feedOrder', 'Ana sayfa sıralaması', s.feedOrder, [['recommended','Önerilen'],['recent','En son'],['following','Takip ettiklerim']])}
+    ${selectRow('videoQuality', 'Video kalitesi', s.videoQuality, [['low','Düşük'],['medium','Orta'],['high','Yüksek']])}
     ${toggleRow('recommendedPosts', 'Önerilen gönderiler', s.recommendedPosts)}
     ${toggleRow('followingFeed', 'Takip edilenler akışı', s.followingFeed)}
     ${toggleRow('autoplayVideo', 'Video otomatik oynatma', s.autoplayVideo)}
