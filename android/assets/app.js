@@ -735,6 +735,8 @@ async function loadSettings() {
     ${toggleRow('autoBackup', 'Otomatik yedekleme', s.autoBackup)}
     ${toggleRow('wifiOnly', 'Wi-Fi üzerinden indirme', s.wifiOnly)}
     <div class="set-row"><label>Depolama kullanımı</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showStorage()">Görüntüle</button></div>
+    <div class="set-row"><label>Çöp kutusu</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showTrash()">Görüntüle</button></div>
+    <div class="set-row"><label>Güvenlik kayıtları</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showAudit()">Görüntüle</button></div>
     <div class="set-row"><label>Verileri dışa aktar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="exportData()">İndir</button></div>
     ${window.AkisAndroid ? '<div class="settings-h">🌐 Sunucu</div><div class="set-row"><label>Sunucuya bağlan</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="AkisAndroid.changeServer()">Bağlan</button></div>' : ''}
   `;
@@ -823,6 +825,28 @@ async function exportData() {
     a.download = 'sohbet-export.json';
     a.click();
     URL.revokeObjectURL(a.href);
+  } catch (e) { alert(e.message); }
+}
+
+async function showTrash() {
+  try {
+    const d = await api('/api/trash');
+    if (!d.posts.length) { alert('Çöp kutusu boş'); return; }
+    const lines = d.posts.map((p) => `#${p.id} — ${p.caption || '(açıklama yok)'}`).join('\n');
+    const id = prompt('Çöp kutusu:\n' + lines + '\n\nGeri yükle veya kalıcı sil için ID yazın (veya boş kapatın)');
+    if (!id) return;
+    const restore = confirm('#' + id + ' gönderisini geri yükle?\n(İptal = kalıcı sil)');
+    if (restore) await api('/api/posts/' + id + '/restore', { method: 'POST' });
+    else await api('/api/trash/' + id, { method: 'DELETE' });
+    alert('İşlem tamam');
+  } catch (e) { alert(e.message); }
+}
+
+async function showAudit() {
+  try {
+    const d = await api('/api/audit');
+    const lines = d.logs.slice(0, 30).map((l) => `${new Date(l.created_at).toLocaleString('tr-TR')} — ${l.action}`).join('\n') || 'Kayıt yok';
+    alert('Güvenlik kayıtları:\n' + lines);
   } catch (e) { alert(e.message); }
 }
 
