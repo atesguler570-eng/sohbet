@@ -93,6 +93,15 @@ db.exec(`
     PRIMARY KEY (blocker_id, blocked_id)
   );
 
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action     TEXT NOT NULL,
+    ip         TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at DESC);
+
   CREATE TABLE IF NOT EXISTS notifications (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -140,5 +149,7 @@ function ensureColumn(table, column, definition) {
 ensureColumn('users', 'cover', 'cover TEXT');
 ensureColumn('users', 'bio', "bio TEXT NOT NULL DEFAULT ''");
 ensureColumn('users', 'settings', "settings TEXT NOT NULL DEFAULT '{}'");
+ensureColumn('posts', 'deleted_at', 'deleted_at INTEGER');
+ensureColumn('messages', 'expires_at', 'expires_at INTEGER');
 
 module.exports = { db, DATA_DIR };
