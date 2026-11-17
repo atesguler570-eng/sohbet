@@ -93,6 +93,13 @@ db.exec(`
     PRIMARY KEY (blocker_id, blocked_id)
   );
 
+  CREATE TABLE IF NOT EXISTS hidden_posts (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, post_id)
+  );
+
   CREATE TABLE IF NOT EXISTS reports (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -164,6 +171,8 @@ ensureColumn('users', 'verified', 'verified INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'account_type', "account_type TEXT NOT NULL DEFAULT 'personal'");
 ensureColumn('users', 'email', "email TEXT NOT NULL DEFAULT ''");
 ensureColumn('posts', 'deleted_at', 'deleted_at INTEGER');
+ensureColumn('posts', 'views', 'views INTEGER NOT NULL DEFAULT 0');
+ensureColumn('posts', 'category', "category TEXT NOT NULL DEFAULT ''");
 ensureColumn('messages', 'expires_at', 'expires_at INTEGER');
 
 module.exports = { db, DATA_DIR };
