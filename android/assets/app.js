@@ -688,200 +688,365 @@ function openUpload() {
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-/* ---------- Ayarlar ---------- */
+/* ---------- Ayarlar (bileşen tabanlı) ---------- */
 document.getElementById('settingsBtn').addEventListener('click', openSettings);
+
+let currentSettings = {};
+let currentSection = 'account';
+
+const SECTIONS = [
+  { id: 'account', label: '👤 Hesap' },
+  { id: 'privacy', label: '🔒 Gizlilik ve Güvenlik' },
+  { id: 'notifications', label: '🔔 Bildirimler' },
+  { id: 'messages', label: '💬 Mesajlar' },
+  { id: 'appearance', label: '🎨 Görünüm' },
+  { id: 'feed', label: '📰 Akış ve İçerik' },
+  { id: 'posts', label: '📸 Gönderi ve Hikâye' },
+  { id: 'social', label: '🎮 Arkadaşlar' },
+  { id: 'accessibility', label: '♿ Erişilebilirlik' },
+  { id: 'app', label: '📱 Uygulama' },
+  { id: 'help', label: '🛡️ Yardım' },
+  { id: 'advanced', label: '🧑‍💻 Gelişmiş' },
+];
 
 function openSettings() {
   document.querySelectorAll('.view').forEach((v) => v.style.display = 'none');
   document.getElementById('viewSettings').style.display = 'block';
   document.querySelectorAll('.bottom-nav button').forEach((b) => b.classList.remove('active'));
-  loadSettings();
+  renderSettings();
 }
 
-let currentSettings = {};
-async function loadSettings() {
+async function renderSettings() {
   const d = await api('/api/settings');
   currentSettings = d.settings;
-  const s = d.settings;
-  applySettings(s);
+  applySettings(currentSettings);
+  const isAdmin = me && me.role === 'admin';
   const content = document.getElementById('settingsContent');
+  const nav = SECTIONS.map((s) => `<button class="set-nav ${s.id === currentSection ? 'active' : ''}" data-section="${s.id}">${s.label}</button>`).join('');
   content.innerHTML = `
     <h1>⚙️ Ayarlar</h1>
+    <div class="settings-layout">
+      <aside class="settings-nav">${nav}${isAdmin ? '<button class="set-nav' + (currentSection === 'admin' ? ' active' : '') + '" data-section="admin">🛡️ Yönetim Paneli</button>' : ''}</aside>
+      <div class="settings-body" id="settingsBody"></div>
+    </div>`;
+  content.querySelectorAll('.set-nav').forEach((b) => b.addEventListener('click', () => { currentSection = b.dataset.section; renderSettings(); }));
+  renderSection(currentSection, currentSettings);
+}
 
-    <div class="settings-h">🔒 Gizlilik ve Güvenlik</div>
-    ${toggleRow('privateAccount', 'Gizli hesap', s.privateAccount)}
-    ${toggleRow('showOnline', 'Çevrimiçi durumunu göster', s.showOnline)}
-    ${toggleRow('showLastSeen', 'Son görülmeyi göster', s.showLastSeen)}
-    ${selectRow('allowMessages', 'Kimler mesaj gönderebilir', s.allowMessages, [['everyone','Herkes'],['friends','Sadece arkadaşlarım']])}
-    ${toggleRow('allowComments', 'Yorumlara izin ver', s.allowComments)}
-    ${toggleRow('allowTagging', 'Etiketlemelere izin ver', s.allowTagging)}
-    <div class="set-row"><label>Engellenen hesaplar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showBlocks()">Listele</button></div>
-    <div class="set-row"><label>Sessize alınan hesaplar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showMutes()">Listele</button></div>
-
-    <div class="settings-h">🔔 Bildirimler</div>
-    ${toggleRow('notifications', 'Bildirimler', s.notifications)}
-    ${toggleRow('sound', 'Bildirim sesleri', s.sound)}
-    ${toggleRow('vibration', 'Titreşim', s.vibration)}
-    ${toggleRow('dnd', 'Rahatsız Etmeyin modu', s.dnd)}
-
-    <div class="settings-h">🎨 Görünüm</div>
-    ${selectRow('theme', 'Tema', s.theme, [['dark','Koyu'],['light','Açık']])}
-    ${selectRow('fontSize', 'Yazı boyutu', s.fontSize, [['small','Küçük'],['medium','Orta'],['large','Büyük']])}
-    ${toggleRow('reduceMotion', 'Hareketleri azalt', s.reduceMotion)}
-    ${toggleRow('highContrast', 'Yüksek kontrast', s.highContrast)}
-
-    <div class="settings-h">📰 Akış</div>
-    ${toggleRow('autoplayVideo', 'Videoları otomatik oynat', s.autoplayVideo)}
-    ${toggleRow('dataSaver', 'Veri tasarrufu', s.dataSaver)}
-    ${selectRow('autoDownloadMedia', 'Medya indirme', s.autoDownloadMedia, [['always','Her zaman'],['wifi','Sadece Wi-Fi'],['never','Asla']])}
-    ${toggleRow('showLikedPosts', 'Beğenilenleri akışta göster', s.showLikedPosts)}
-
-    <div class="settings-h">👤 Profil</div>
-    ${toggleRow('showFollowerCount', 'Takipçi sayısını göster', s.showFollowerCount)}
-    ${selectRow('profileVisibility', 'Profilimi kimler görebilir', s.profileVisibility, [['public','Herkes'],['followers','Takipçilerim'],['private','Sadece ben']])}
-
-    <div class="settings-h">🔔 Rahatsız Etmeyin</div>
-    ${toggleRow('dnd', 'Rahatsız Etmeyin', s.dnd)}
-
-    <div class="settings-h">🛡️ Gizlilik</div>
-    ${toggleRow('allowMentions', 'Bahsedilmelere izin ver', s.allowMentions)}
-    ${toggleRow('autoSaveDrafts', 'Taslakları otomatik kaydet', s.autoSaveDrafts)}
-    ${toggleRow('locationSharing', 'Konum paylaşımı', s.locationSharing)}
-    ${toggleRow('analytics', 'Kullanım istatistikleri', s.analytics)}
-
-    <div class="settings-h">🌐 Dil ve Bölge</div>
-    ${selectRow('language', 'Dil', s.language, [['tr','Türkçe'],['en','English']])}
-
-    <div class="settings-h">📱 Hesap</div>
-    <div class="set-row"><label>Şifre değiştir</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="changePassword()">Değiştir</button></div>
-    <div class="set-row"><label>Hesabı kalıcı sil</label><button class="btn danger" style="width:auto;padding:4px 10px;" onclick="deleteAccount()">Sil</button></div>
-    <div class="set-row"><label>Aktif oturumlar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showSessions()">Görüntüle</button></div>
-
-    <div class="settings-h">📱 Uygulama</div>
-    <div class="set-row"><label>Önbelleği temizle</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="clearCache()">Temizle</button></div>
-    ${toggleRow('autoUpdate', 'Otomatik güncelleme', s.autoUpdate)}
-
-    <div class="settings-h">☁️ Depolama</div>
-    ${toggleRow('autoDelete', 'Otomatik silme sistemi', s.autoDelete)}
-    ${toggleRow('cloudSync', 'Bulut senkronizasyonu', s.cloudSync)}
-    ${toggleRow('autoBackup', 'Otomatik yedekleme', s.autoBackup)}
-    ${toggleRow('wifiOnly', 'Wi-Fi üzerinden indirme', s.wifiOnly)}
-    <div class="set-row"><label>Depolama kullanımı</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showStorage()">Görüntüle</button></div>
-    <div class="set-row"><label>Çöp kutusu</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showTrash()">Görüntüle</button></div>
-    <div class="set-row"><label>Güvenlik kayıtları</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showAudit()">Görüntüle</button></div>
-    <div class="set-row"><label>Verileri dışa aktar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="exportData()">İndir</button></div>
-    ${window.AkisAndroid ? '<div class="settings-h">🌐 Sunucu</div><div class="set-row"><label>Sunucuya bağlan</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="AkisAndroid.changeServer()">Bağlan</button></div>' : ''}
-  `;
+function renderSection(id, s) {
+  const b = document.getElementById('settingsBody');
+  b.innerHTML = SECTION_RENDERERS[id] ? SECTION_RENDERERS[id](s) : '';
+  if (id === 'admin') loadAdmin();
+  b.querySelectorAll('[data-toggle]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const key = el.dataset.toggle;
+      const next = !currentSettings[key];
+      currentSettings[key] = next;
+      el.classList.toggle('on', !!next);
+      api('/api/settings', { method: 'PATCH', body: { [key]: next } }).catch(() => {});
+      applySettings(currentSettings);
+    });
+  });
+  b.querySelectorAll('[data-select]').forEach((el) => {
+    el.addEventListener('change', () => {
+      api('/api/settings', { method: 'PATCH', body: { [el.dataset.select]: el.value } }).catch(() => {});
+    });
+  });
 }
 
 function toggleRow(key, label, value) {
-  return `<div class="set-row"><label>${label}</label><div class="toggle ${value ? 'on' : ''}" onclick="toggleSetting('${key}', this)"></div></div>`;
+  return `<div class="set-row"><label>${label}</label><div class="toggle ${value ? 'on' : ''}" data-toggle="${key}"></div></div>`;
 }
 function selectRow(key, label, value, options) {
-  const opts = options.map(([k,v]) => `<option value="${k}" ${k===value?'selected':''}>${v}</option>`).join('');
-  return `<div class="set-row"><label>${label}</label><select onchange="saveSetting('${key}', this.value)">${opts}</select></div>`;
+  const opts = options.map(([k, v]) => `<option value="${k}" ${k === value ? 'selected' : ''}>${v}</option>`).join('');
+  return `<div class="set-row"><label>${label}</label><select data-select="${key}">${opts}</select></div>`;
 }
+function header(label) { return `<div class="settings-h">${label}</div>`; }
+function soon(label) { return `<div class="set-row"><label>${label}</label><span style="color:var(--muted);font-size:12px;">Yakında</span></div>`; }
 
-async function toggleSetting(key, el) {
-  const next = !el.classList.contains('on');
-  el.classList.toggle('on', next);
-  await saveSetting(key, next);
-}
-async function saveSetting(key, value) {
-  currentSettings[key] = value;
-  if (key === 'autoUpdate') localStorage.setItem('sohbet-autoupdate', value ? 'on' : 'off');
-  await api('/api/settings', { method: 'PATCH', body: { [key]: value } });
-  applySettings(currentSettings);
-}
-async function showBlocks() {
-  const d = await api('/api/blocks');
-  const names = d.users.map(u => '@' + u.username).join('\n') || 'Engellenen kimse yok';
-  alert('Engellenenler:\n' + names);
-}
-async function showMutes() {
-  const d = await api('/api/mutes');
-  const names = d.users.map(u => '@' + u.username).join('\n') || 'Sessize alınan kimse yok';
-  alert('Sessize alınanlar:\n' + names);
-}
-async function showSessions() {
-  const d = await api('/api/sessions');
-  const list = d.sessions.map(s => `${s.device.slice(0,30)}${s.current?' (bu cihaz)':''}`).join('\n');
-  alert('Aktif oturumlar:\n' + list);
-}
-function changePassword() {
-  const cur = prompt('Mevcut şifre:');
-  if (!cur) return;
-  const next = prompt('Yeni şifre:');
-  if (!next) return;
+const SECTION_RENDERERS = {
+  account: (s) => `
+    ${header('👤 Hesap Ayarları')}
+    <div class="set-row"><label>Görünen ad</label><input value="${escapeHtml(me?.displayName || '')}" onchange="saveProfile('displayName', this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);" /></div>
+    <div class="set-row"><label>Kullanıcı adı</label><input value="${escapeHtml(me?.username || '')}" onchange="changeUsername(this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);" /></div>
+    <div class="set-row"><label>Biyografi</label><textarea onchange="saveProfile('bio', this.value)" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);width:200px;min-height:40px;">${escapeHtml(me?.bio || '')}</textarea></div>
+    <div class="set-row"><label>Profil fotoğrafı</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="pickAvatar()">Değiştir</button></div>
+    <div class="set-row"><label>Kapak fotoğrafı</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="pickCover()">Değiştir</button></div>
+    ${selectRow('accountType', 'Hesap türü', s.accountType, [['personal','Kişisel'],['creator','İçerik Üretici']])}
+    ${toggleRow('showCreateDate', 'Hesap oluşturma tarihini göster', s.showCreateDate)}
+    <div class="set-row"><label>Hesap durumu</label><span style="color:var(--muted)">${me?.verified ? '✓ Doğrulandı' : 'Doğrulanmadı'}</span></div>
+    <div class="set-row"><label>Şifre</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="changePassword()">Değiştir</button></div>
+    <div class="set-row"><label>Hesap dondur</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="deactivateAccount()">Dondur</button></div>
+    <div class="set-row"><label>Hesabı kalıcı sil</label><button class="btn danger" style="width:auto;padding:4px 10px;" onclick="deleteAccount()">Kalıcı Sil</button></div>
+  `,
+  privacy: (s) => `
+    ${header('🔒 Gizlilik ve Güvenlik')}
+    ${toggleRow('privateAccount', 'Gizli hesap', s.privateAccount)}
+    ${toggleRow('searchable', 'Beni arama sonuçlarında göster', s.searchable)}
+    ${toggleRow('activityStatus', 'Etkinlik durumunu göster', s.activityStatus)}
+    ${toggleRow('showOnline', 'Çevrimiçi durumunu göster', s.showOnline)}
+    ${toggleRow('showLastSeen', 'Son görülmeyi göster', s.showLastSeen)}
+    ${selectRow('profileVisibility', 'Profilimi kimler görebilir', s.profileVisibility, [['public','Herkes'],['followers','Takipçilerim'],['private','Sadece ben']])}
+    ${selectRow('postsVisibility', 'Gönderilerimi kimler görebilir', s.postsVisibility, [['public','Herkes'],['followers','Takipçilerim'],['private','Sadece ben']])}
+    ${selectRow('storiesVisibility', 'Hikâyelerimi kimler görebilir', s.storiesVisibility, [['everyone','Herkes'],['followers','Takipçilerim'],['close','Yakın arkadaşlar'],['nobody','Kimse']])}
+    ${selectRow('followersVisibility', 'Beni kimler takip edebilir', s.followersVisibility, [['everyone','Herkes'],['followers','Takipçilerim']])}
+    ${selectRow('allowMessages', 'Kimler mesaj gönderebilir', s.allowMessages, [['everyone','Herkes'],['followers','Takipçilerim'],['friends','Arkadaşlarım']])}
+    ${toggleRow('allowMessageRequests', 'Mesaj isteklerine izin ver', s.allowMessageRequests)}
+    ${toggleRow('allowTagging', 'Etiketlemelere izin ver', s.allowTagging)}
+    ${toggleRow('allowMentions', 'Bahsedilmelere izin ver', s.allowMentions)}
+    ${toggleRow('twoFactorAuth', 'İki aşamalı doğrulama', s.twoFactorAuth)}
+    ${toggleRow('securityAlerts', 'Güvenlik bildirimleri', s.securityAlerts)}
+    ${toggleRow('suspiciousLoginAlert', 'Şüpheli giriş uyarıları', s.suspiciousLoginAlert)}
+    <div class="set-row"><label>Engellenen hesaplar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showBlocks()">Listele</button></div>
+    <div class="set-row"><label>Sessize alınan hesaplar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showMutes()">Listele</button></div>
+    <div class="set-row"><label>Aktif oturumlar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showSessions()">Görüntüle</button></div>
+    <div class="set-row"><label>Güvenlik kayıtları</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showAudit()">Görüntüle</button></div>
+  `,
+  notifications: (s) => `
+    ${header('🔔 Bildirimler')}
+    ${toggleRow('notifications', 'Bildirimleri tamamen aç/kapat', s.notifications)}
+    ${toggleRow('likeNotifications', 'Beğeniler', s.likeNotifications)}
+    ${toggleRow('commentNotifications', 'Yorumlar', s.commentNotifications)}
+    ${toggleRow('followNotifications', 'Takip istekleri', s.followNotifications)}
+    ${toggleRow('newFollowerNotifications', 'Yeni takipçiler', s.newFollowerNotifications)}
+    ${toggleRow('messageNotifications', 'Mesajlar', s.messageNotifications)}
+    ${toggleRow('storyNotifications', 'Hikâyeler', s.storyNotifications)}
+    ${toggleRow('liveNotifications', 'Canlı yayınlar', s.liveNotifications)}
+    ${toggleRow('mentionNotifications', 'Bahsedilmeler', s.mentionNotifications)}
+    ${toggleRow('tagNotifications', 'Etiketlenmeler', s.tagNotifications)}
+    ${toggleRow('friendSuggestions', 'Arkadaş önerileri', s.friendSuggestions)}
+    ${toggleRow('systemNotifications', 'Sistem', s.systemNotifications)}
+    ${toggleRow('updateNotifications', 'Güncellemeler', s.updateNotifications)}
+    ${toggleRow('sound', 'Bildirim sesleri', s.sound)}
+    ${toggleRow('vibration', 'Titreşim', s.vibration)}
+    ${toggleRow('dnd', 'Rahatsız Etmeyin modu', s.dnd)}
+    ${selectRow('dndFrom', 'Rah.Et. başlangıç', s.dndFrom, [['21:00','21'],['22:00','22'],['23:00','23'],['00:00','00']])}
+    ${selectRow('dndTo', 'Rah.Et. bitiş', s.dndTo, [['06:00','06'],['07:00','07'],['08:00','08'],['09:00','09']])}
+  `,
+  messages: (s) => `
+    ${header('💬 Mesaj Ayarları')}
+    ${toggleRow('allowMessageRequests', 'Mesaj istekleri', s.allowMessageRequests)}
+    ${toggleRow('readReceipts', 'Okundu bilgisi', s.readReceipts)}
+    ${toggleRow('typingIndicator', 'Yazıyor göstergesi', s.typingIndicator)}
+    ${selectRow('allowMessages', 'Kimler mesaj gönderebilir', s.allowMessages, [['everyone','Herkes'],['followers','Takipçilerim'],['friends','Arkadaşlarım']])}
+    ${toggleRow('messageFilter', 'Otomatik mesaj filtreleme', s.messageFilter)}
+    ${toggleRow('groupInvites', 'Grup davetlerine izin ver', s.groupInvites)}
+    ${selectRow('autoDownloadMedia', 'Medya otomatik indirme', s.autoDownloadMedia, [['always','Her zaman'],['wifi','Sadece Wi-Fi'],['never','Asla']])}
+    ${toggleRow('closeFriends', 'Yakın arkadaşlar mesajları', s.closeFriends)}
+    ${toggleRow('autoSaveDrafts', 'Taslakları otomatik kaydet', s.autoSaveDrafts)}
+  `,
+  appearance: (s) => `
+    ${header('🎨 Görünüm ve Tema')}
+    ${selectRow('theme', 'Tema', s.theme, [['dark','Koyu'],['light','Açık']])}
+    ${selectRow('accent', 'Tema rengi', s.accent, [['#6c7bff','Mor-Mavi'],['#ff0050','Pembe'],['#ff6b6b','Kırmızı'],['#3dd68c','Yeşil'],['#f5c518','Sarı'],['#22d3ee','Turkuaz']])}
+    ${selectRow('background', 'Arka plan', s.background, [['default','Varsayılan'],['aurora','Aurora'],['ocean','Okyanus'],['sunset','Gün Batımı']])}
+    ${selectRow('fontSize', 'Yazı boyutu', s.fontSize, [['small','Küçük'],['medium','Orta'],['large','Büyük']])}
+    ${selectRow('fontFamily', 'Yazı tipi', s.fontFamily, [['default','Varsayılan'],['serif','Serif'],['mono','Mono']])}
+    ${toggleRow('transitionEffects', 'Geçiş efektleri', s.transitionEffects)}
+    ${toggleRow('animation', 'Animasyonlar', s.animation)}
+    ${toggleRow('reduceMotion', 'Hareketleri azalt', s.reduceMotion)}
+    ${toggleRow('highContrast', 'Yüksek kontrast', s.highContrast)}
+    ${toggleRow('colorBlindMode', 'Renk körlüğü desteği', s.colorBlindMode)}
+  `,
+  feed: (s) => `
+    ${header('📰 Akış ve İçerik')}
+    ${selectRow('feedOrder', 'Ana sayfa sıralaması', s.feedOrder, [['recommended','Önerilen'],['recent','En son'],['following','Takip ettiklerim']])}
+    ${toggleRow('recommendedPosts', 'Önerilen gönderiler', s.recommendedPosts)}
+    ${toggleRow('followingFeed', 'Takip edilenler akışı', s.followingFeed)}
+    ${toggleRow('autoplayVideo', 'Video otomatik oynatma', s.autoplayVideo)}
+    ${toggleRow('sensitiveContentFilter', 'Hassas içerik filtresi', s.sensitiveContentFilter)}
+    ${toggleRow('hideUnwanted', 'İstenmeyen içerikleri gizle', s.hideUnwanted)}
+    ${toggleRow('showLikedPosts', 'Beğenilenleri akışta göster', s.showLikedPosts)}
+    ${toggleRow('showSaveCount', 'Kaydedilen sayısını göster', s.showSaveCount)}
+    ${toggleRow('interestReset', 'Öneri algoritmasını sıfırla', s.interestReset)}
+  `,
+  posts: (s) => `
+    ${header('📸 Gönderi ve Hikâye')}
+    ${toggleRow('commentsEnabled', 'Yorumları aç/kapat', s.commentsEnabled)}
+    ${toggleRow('showLikeCount', 'Beğeni sayılarını göster', s.showLikeCount)}
+    ${toggleRow('allowDownload', 'İndirmeye izin ver', s.allowDownload)}
+    ${toggleRow('allowShare', 'Paylaşma izni', s.allowShare)}
+    ${toggleRow('allowStoryHide', 'Hikâye gizleme', s.allowStoryHide)}
+    ${toggleRow('nearFriends', 'Yakın arkadaşlar', s.nearFriends)}
+    ${toggleRow('storyArchive', 'Hikâye arşivi', s.storyArchive)}
+    ${selectRow('storyDuration', 'Hikâye süresi', s.storyDuration, [['24h','24 saat'],['12h','12 saat'],['6h','6 saat']])}
+    ${toggleRow('autoSaveDrafts', 'Taslakları otomatik kaydet', s.autoSaveDrafts)}
+    ${toggleRow('tagApproval', 'Etiket onayı', s.tagApproval)}
+    ${toggleRow('locationSharing', 'Konum paylaşımı', s.locationSharing)}
+  `,
+  social: (s) => `
+    ${header('🎮 Arkadaş ve Sosyal')}
+    ${toggleRow('friendRecommendations', 'Arkadaş önerileri', s.friendRecommendations)}
+    ${toggleRow('showOnlineStatus', 'Arkadaş çevrimiçi durumu', s.showOnlineStatus)}
+    ${toggleRow('searchable', 'Kullanıcı arama izni', s.searchable)}
+    ${toggleRow('hideFriendList', 'Arkadaş listesini gizle', s.hideFriendList)}
+    ${toggleRow('showFollowerCount', 'Takipçi sayısını göster', s.showFollowerCount)}
+    ${toggleRow('showFollowingCount', 'Takip edilen sayısını göster', s.showFollowingCount)}
+    ${toggleRow('nearFriends', 'Yakın arkadaşlar listesi', s.nearFriends)}
+  `,
+  accessibility: (s) => `
+    ${header('♿ Erişilebilirlik')}
+    ${toggleRow('screenReader', 'Ekran okuyucu desteği', s.screenReader)}
+    ${toggleRow('captions', 'Altyazıları göster', s.captions)}
+    ${toggleRow('autoCaptions', 'Otomatik video altyazısı', s.autoCaptions)}
+    ${toggleRow('highContrast', 'Yüksek kontrast', s.highContrast)}
+    ${toggleRow('colorBlindMode', 'Renk körlüğü desteği', s.colorBlindMode)}
+    ${toggleRow('largeText', 'Büyük yazılar', s.largeText)}
+    ${toggleRow('reduceMotion', 'Hareket azaltma', s.reduceMotion)}
+    ${toggleRow('keyboardNav', 'Klavye ile gezinme', s.keyboardNav)}
+  `,
+  app: (s) => `
+    ${header('📱 Uygulama Ayarları')}
+    ${selectRow('language', 'Dil', s.language, [['tr','Türkçe'],['en','English']])}
+    ${selectRow('country', 'Ülke/Bölge', s.country, [['TR','Türkiye'],['US','ABD'],['DE','Almanya'],['GB','İngiltere']])}
+    ${selectRow('dateFormat', 'Tarih biçimi', s.dateFormat, [['dd.MM.yyyy','GG.AA.YYYY'],['MM/dd/yyyy','AA/GG/YYYY'],['yyyy-MM-dd','YYYY-AA-GG']])}
+    ${selectRow('timeFormat', 'Saat biçimi', s.timeFormat, [['24h','24 saat'],['12h','12 saat']])}
+    ${toggleRow('dataSaver', 'Veri tasarrufu', s.dataSaver)}
+    ${toggleRow('autoUpdate', 'Otomatik güncelleme', s.autoUpdate)}
+    ${toggleRow('batterySaver', 'Pil tasarrufu', s.batterySaver)}
+    ${toggleRow('permissionsCamera', 'Kamera izni', s.permissionsCamera)}
+    ${toggleRow('permissionsMicrophone', 'Mikrofon izni', s.permissionsMicrophone)}
+    ${toggleRow('permissionsPhotos', 'Fotoğraf izni', s.permissionsPhotos)}
+    ${toggleRow('permissionsLocation', 'Konum izni', s.permissionsLocation)}
+    ${toggleRow('wifiOnly', 'Wi-Fi üzerinden indirme', s.wifiOnly)}
+    ${toggleRow('offlineMode', 'Çevrimdışı mod', s.offlineMode)}
+    <div class="set-row"><label>Önbelleği temizle</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="clearCache()">Temizle</button></div>
+    <div class="set-row"><label>Depolama kullanımı</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showStorage()">Görüntüle</button></div>
+    <div class="set-row"><label>Çöp kutusu</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showTrash()">Görüntüle</button></div>
+    <div class="set-row"><label>Verileri dışa aktar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="exportData()">İndir</button></div>
+  `,
+  help: (s) => `
+    ${header('🛡️ Yardım')}
+    <div class="set-row"><label>Yardım merkezi</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="alert('Yardım: ayarlar@sohbet.app')">Aç</button></div>
+    <div class="set-row"><label>SSS</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="alert('SSS: Mesaj göndermek için sohbeti açın. Kaydedilenler profilinizde.')">Aç</button></div>
+    <div class="set-row"><label>Sorun bildir</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="reportProblem()">Bildir</button></div>
+    <div class="set-row"><label>Gizlilik politikası</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="alert('Verileriniz bu cihazda/sunucuda saklanır.')">Oku</button></div>
+    <div class="set-row"><label>Kullanım şartları</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="alert('Sohbet: spam yasak, saygı şart.')">Oku</button></div>
+    <div class="set-row"><label>Geri bildirim</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="reportProblem()">Gönder</button></div>
+    <div class="set-row"><label>Topluluk kuralları</label><span style="color:var(--muted);font-size:12px;">Spam yok, saygı var</span></div>
+    <div class="set-row"><label>Sürüm</label><span style="color:var(--muted)">Sohbet v1.1</span></div>
+    ${soon('Hikâye özelliği')}
+    ${soon('Canlı yayın')}
+    ${soon('Ticari hesaplar')}
+  `,
+  advanced: (s) => `
+    ${header('🧑‍💻 Gelişmiş Ayarlar')}
+    <div class="set-row"><label>Aktif oturumlar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="showSessions()">Görüntüle</button></div>
+    <div class="set-row"><label>Verileri dışa aktar</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="exportData()">İndir</button></div>
+    ${toggleRow('analytics', 'Kullanım istatistikleri', s.analytics)}
+    ${toggleRow('adsPersonalization', 'Reklam kişiselleştirme', s.adsPersonalization)}
+    ${toggleRow('personalization', 'Kişiselleştirme', s.personalization)}
+    ${selectRow('recommendationAlgorithm', 'Öneri algoritması', s.recommendationAlgorithm, [['balanced','Dengeli'],['recent','Yeni'],['relevant','İlgili']])}
+    ${toggleRow('experimentalFeatures', 'Deneysel özellikler', s.experimentalFeatures)}
+    ${toggleRow('betaProgram', 'Beta programı', s.betaProgram)}
+    <div class="set-row"><label>API erişimi</label><button class="btn secondary" style="width:auto;padding:4px 10px;" onclick="alert('API: /api/* — oturum cookie ile erişilir.')">Bilgi</button></div>
+    ${soon('OAuth uygulaması')}
+  `,
+  admin: (s) => `
+    ${header('🛡️ Yönetim Paneli')}
+    <div id="adminBox">Yükleniyor...</div>
+  `,
+};
+
+window.saveProfile = async function (field, value) {
+  const body = {}; if (field === 'displayName') body.displayName = value; else body.bio = value;
+  const d = await api('/api/me', { method: 'PATCH', body });
+  me = d.user;
+  alert('Kaydedildi');
+};
+window.changeUsername = async function (value) {
+  try { const d = await api('/api/me/username', { method: 'PATCH', body: { username: value } }); me = d.user; alert('Kullanıcı adı güncellendi'); }
+  catch (e) { alert(e.message); }
+};
+window.pickAvatar = function () {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    const fd = new FormData(); fd.append('avatar', file);
+    const res = await fetch('/api/me/avatar', { method: 'POST', credentials: 'same-origin', body: fd });
+    const d = await res.json();
+    if (res.ok) { me = d.user; alert('Profil fotoğrafı güncellendi'); } else alert(d.error);
+  };
+  input.click();
+};
+window.pickCover = function () {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    const fd = new FormData(); fd.append('cover', file);
+    const res = await fetch('/api/me/cover', { method: 'POST', credentials: 'same-origin', body: fd });
+    const d = await res.json();
+    if (res.ok) { me = d.user; alert('Kapak güncellendi'); } else alert(d.error);
+  };
+  input.click();
+};
+window.changePassword = function () {
+  const cur = prompt('Mevcut şifre:'); if (cur === null) return;
+  const next = prompt('Yeni şifre:'); if (next === null) return;
   api('/api/me/password', { method: 'POST', body: { currentPassword: cur, newPassword: next } })
     .then(() => alert('Şifre değiştirildi'))
     .catch((e) => alert(e.message));
-}
-async function deleteAccount() {
+};
+window.deactivateAccount = function () {
+  if (!confirm('Hesabınızı dondurmak istediğinize emin misiniz?')) return;
+  api('/api/me/deactivate', { method: 'POST' }).then(() => { alert('Hesap donduruldu'); location.reload(); }).catch((e) => alert(e.message));
+};
+window.deleteAccount = function () {
   if (!confirm('Hesabınızı kalıcı olarak silmek istediğinize emin misiniz?')) return;
+  api('/api/me', { method: 'DELETE' }).then(() => location.reload()).catch((e) => alert(e.message));
+};
+window.showSessions = async function () {
   try {
-    await api('/api/me', { method: 'DELETE' });
-    location.reload();
+    const d = await api('/api/sessions');
+    alert('Aktif oturumlar:\n' + d.sessions.map(s => ((s.device || 'Cihaz').slice(0, 40)) + (s.current ? ' (bu cihaz)' : '')).join('\n'));
   } catch (e) { alert(e.message); }
-}
-function clearCache() {
-  if ('caches' in window) caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))));
-  alert('Önbellek temizlendi');
-}
+};
+window.showBlocks = async function () {
+  try { const d = await api('/api/blocks'); alert('Engellenenler:\n' + ((d.users.map(u => '@' + u.username).join('\n')) || 'Yok')); } catch (e) { alert(e.message); }
+};
+window.showMutes = async function () {
+  try { const d = await api('/api/mutes'); alert('Sessize alınanlar:\n' + ((d.users.map(u => '@' + u.username).join('\n')) || 'Yok')); } catch (e) { alert(e.message); }
+};
+window.showAudit = async function () {
+  try { const d = await api('/api/audit'); alert('Güvenlik kayıtları:\n' + ((d.logs.map(l => new Date(l.created_at).toLocaleString('tr-TR') + ' — ' + l.action).join('\n')) || 'Kayıt yok')); } catch (e) { alert(e.message); }
+};
+window.reportProblem = function () {
+  const what = prompt('Sorun nedir?'); if (!what) return;
+  api('/api/reports', { method: 'POST', body: { target: 'app', reason: what } }).then(() => alert('Bildirildi, teşekkürler')).catch((e) => alert(e.message));
+};
+window.loadAdmin = async function () {
+  const el = document.getElementById('adminBox');
+  if (!el) return;
+  try {
+    const [o, ur, rpt] = await Promise.all([api('/api/admin/overview'), api('/api/admin/users'), api('/api/admin/reports')]);
+    const users = ur.users.map(u => `<div class="set-row"><label>${u.verified ? '✓' : ''} @${escapeHtml(u.username)} (${u.role}) ${u.suspended ? '· askıda' : ''}</label><span><button class="btn secondary" style="width:auto;padding:2px 8px;margin-right:4px;" onclick="verifyUser(${u.id})">Doğrula</button><button class="btn danger" style="width:auto;padding:2px 8px;" onclick="suspendUser(${u.id})">Askıya Al</button></span></div>`).join('');
+    const reports = rpt.reports.map(r => `<div class="set-row"><label>${escapeHtml(r.reporter)} → ${escapeHtml(r.target)}<br><small>${escapeHtml(r.reason)}</small></label></div>`).join('') || '<div class="set-row"><label>Rapor yok</label></div>';
+    el.innerHTML = `
+      <div class="set-row"><label>Kullanıcı sayısı</label><span>${o.users}</span></div>
+      <div class="set-row"><label>Gönderi sayısı</label><span>${o.posts}</span></div>
+      <div class="set-row"><label>Açık rapor</label><span>${o.openReports}</span></div>
+      <div class="set-row"><label>Askıya alınan</label><span>${o.suspended}</span></div>
+      ${header('👤 Kullanıcılar')}${users}
+      ${header('🚩 Raporlar')}${reports}`;
+  } catch (e) { el.textContent = e.message; }
+};
+window.verifyUser = async function (id) { try { await api('/api/admin/verify/' + id, { method: 'POST' }); loadAdmin(); } catch (e) { alert(e.message); } };
+window.suspendUser = async function (id) { try { await api('/api/admin/suspend/' + id, { method: 'POST' }); loadAdmin(); } catch (e) { alert(e.message); } };
 
 function applySettings(s) {
   const body = document.body;
-  // font size
   body.classList.remove('fs-small','fs-medium','fs-large');
   body.classList.add('fs-' + (s.fontSize || 'medium'));
-  // theme
   body.classList.toggle('light', s.theme === 'light');
-  // reduce motion
+  if (s.accent) body.style.setProperty('--accent', s.accent);
   body.classList.toggle('reduce-motion', s.reduceMotion);
   body.classList.toggle('high-contrast', s.highContrast);
+  body.classList.toggle('colorblind', s.colorBlindMode);
+  body.classList.toggle('large-text', s.largeText);
 }
 
-async function showStorage() {
-  const d = await api('/api/storage');
-  const kb = (b) => (b/1024).toFixed(1) + ' KB';
-  const mb = (b) => (b/1024/1024).toFixed(2) + ' MB';
-  alert(`📱 Depolama kullanımı\n\nVeritabanı: ${kb(d.dbBytes)}\nYüklenen dosyalar: ${mb(d.uploadsBytes)}\nGönderi sayısı: ${d.posts}\nMesaj sayısı: ${d.messages}\nBildirim: ${d.notifications}\nOturum: ${d.sessions}`);
-}
-
-async function exportData() {
-  try {
-    const res = await fetch('/api/export');
-    const data = await res.json();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'sohbet-export.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  } catch (e) { alert(e.message); }
-}
-
-async function showTrash() {
-  try {
-    const d = await api('/api/trash');
-    if (!d.posts.length) { alert('Çöp kutusu boş'); return; }
-    const lines = d.posts.map((p) => `#${p.id} — ${p.caption || '(açıklama yok)'}`).join('\n');
-    const id = prompt('Çöp kutusu:\n' + lines + '\n\nGeri yükle veya kalıcı sil için ID yazın (veya boş kapatın)');
-    if (!id) return;
-    const restore = confirm('#' + id + ' gönderisini geri yükle?\n(İptal = kalıcı sil)');
-    if (restore) await api('/api/posts/' + id + '/restore', { method: 'POST' });
-    else await api('/api/trash/' + id, { method: 'DELETE' });
-    alert('İşlem tamam');
-  } catch (e) { alert(e.message); }
-}
-
-async function showAudit() {
-  try {
-    const d = await api('/api/audit');
-    const lines = d.logs.slice(0, 30).map((l) => `${new Date(l.created_at).toLocaleString('tr-TR')} — ${l.action}`).join('\n') || 'Kayıt yok';
-    alert('Güvenlik kayıtları:\n' + lines);
-  } catch (e) { alert(e.message); }
-}
 
 /* ---------- Init ---------- */
 boot();
