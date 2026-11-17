@@ -50,6 +50,13 @@ const publicUser = (u) => ({
   avatar: u.avatar,
   cover: u.cover || null,
 });
+function audit(userId, action, req) {
+  try {
+    const ip = req?.ip || req?.socket?.remoteAddress || null;
+    db.prepare('INSERT INTO audit_logs (user_id, action, ip, created_at) VALUES (?,?,?,?)').run(userId, action, ip, now());
+  } catch {}
+}
+
 const handle = (fn) => (req, res, next) => {
   try { fn(req, res, next); } catch (err) { next(err); }
 };
@@ -111,6 +118,7 @@ app.post('/api/register', handle((req, res) => {
   db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen, user_agent) VALUES (?,?,?,?,?)')
     .run(token, Number(info.lastInsertRowid), stamp, stamp, String(req.headers['user-agent'] || '').slice(0, 400));
   res.cookie('sid', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000, path: '/' });
+  audit(Number(info.lastInsertRowid), 'register', req);
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(info.lastInsertRowid));
   res.status(201).json({ user: publicUser(user) });
 }));
@@ -127,6 +135,7 @@ app.post('/api/login', handle((req, res) => {
   db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen, user_agent) VALUES (?,?,?,?,?)')
     .run(token, user.id, stamp, stamp, String(req.headers['user-agent'] || '').slice(0, 400));
   res.cookie('sid', token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000, path: '/' });
+  audit(user.id, 'login', req);
   res.json({ user: publicUser(user) });
 }));
 
@@ -325,7 +334,7 @@ app.get('/api/feed', optionalUser, handle((req, res) => {
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
     FROM posts p JOIN users u ON u.id = p.user_id
-    WHERE p.created_at < ?
+    WHERE p.created_at < ? AND p.deleted_at IS NULL
     ORDER BY p.created_at DESC LIMIT ?`).all(me, before, limit);
   res.json({ posts: rows.map((r) => mapPost(r, me)) });
 }));
@@ -339,7 +348,7 @@ app.get('/api/reels', optionalUser, handle((req, res) => {
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
     FROM posts p JOIN users u ON u.id = p.user_id
-    WHERE p.media_type = 'video'
+    WHERE p.media_type = 'video' AND p.deleted_at IS NULL
     ORDER BY p.created_at DESC LIMIT ?`).all(me, limit);
   res.json({ posts: rows.map((r) => mapPost(r, me)) });
 }));
@@ -364,10 +373,41 @@ app.delete('/api/posts/:id', requireAuth, handle((req, res) => {
   const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(Number(req.params.id));
   if (!post) return res.status(404).json({ error: 'Gönderi bulunamadı.' });
   if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Bu gönderi sana ait değil.' });
+  db.prepare('UPDATE posts SET deleted_at = ? WHERE id = ?').run(now(), post.id);
+  audit(req.user.id, 'post_deleted', req);
+  res.json({ ok: true });
+}));
+
+/* ---------- Çöp Kutusu ---------- */
+app.get('/api/trash', requireAuth, handle((req, res) => {
+  const me = req.user.id;
+  const rows = db.prepare(`SELECT ${POST_COLS}, NULL AS deleted_flag FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? AND p.deleted_at IS NOT NULL ORDER BY p.deleted_at DESC`).all(me);
+  res.json({ posts: rows.map((r) => mapPost(r, me)) });
+}));
+
+app.post('/api/posts/:id/restore', requireAuth, handle((req, res) => {
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(Number(req.params.id));
+  if (!post) return res.status(404).json({ error: 'Gönderi bulunamadı.' });
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Bu gönderi sana ait değil.' });
+  db.prepare('UPDATE posts SET deleted_at = NULL WHERE id = ?').run(post.id);
+  audit(req.user.id, 'post_restored', req);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/trash/:id', requireAuth, handle((req, res) => {
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(Number(req.params.id));
+  if (!post) return res.status(404).json({ error: 'Gönderi bulunamadı.' });
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Bu gönderi sana ait değil.' });
   db.prepare('DELETE FROM posts WHERE id = ?').run(post.id);
   removeFile(post.media_file);
   removeFile(post.poster_file);
+  audit(req.user.id, 'post_permanent_deleted', req);
   res.json({ ok: true });
+}));
+
+app.get('/api/audit', requireAuth, handle((req, res) => {
+  const rows = db.prepare('SELECT action, ip, created_at FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.user.id);
+  res.json({ logs: rows });
 }));
 
 app.post('/api/posts/:id/like', requireAuth, handle((req, res) => {
@@ -404,7 +444,7 @@ app.get('/api/users/:username', optionalUser, handle((req, res) => {
       (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
-    FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? ORDER BY p.created_at DESC LIMIT 60`).all(me, user.id);
+    FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? AND p.deleted_at IS NULL ORDER BY p.created_at DESC LIMIT 60`).all(me, user.id);
   const followers = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE followee_id = ?').get(user.id).c;
   const following = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE follower_id = ?').get(user.id).c;
   const isFollowing = me ? Boolean(db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(me, user.id)) : false;
@@ -421,7 +461,7 @@ app.get('/api/search', optionalUser, handle((req, res) => {
       (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
-    FROM posts p JOIN users u ON u.id = p.user_id WHERE p.caption LIKE ? ORDER BY p.created_at DESC LIMIT 24`).all(me, like);
+    FROM posts p JOIN users u ON u.id = p.user_id WHERE p.caption LIKE ? AND p.deleted_at IS NULL ORDER BY p.created_at DESC LIMIT 24`).all(me, like);
   res.json({ users: users.map(publicUser), posts: postRows.map((r) => mapPost(r, me)) });
 }));
 
@@ -453,7 +493,7 @@ app.get('/api/saved', requireAuth, handle((req, res) => {
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
     FROM saved_posts s JOIN posts p ON p.id = s.post_id JOIN users u ON u.id = p.user_id
-    WHERE s.user_id = ? ORDER BY s.created_at DESC`).all(me, me);
+    WHERE s.user_id = ? AND p.deleted_at IS NULL ORDER BY s.created_at DESC`).all(me, me);
   res.json({ posts: rows.map((r) => mapPost(r, me)) });
 }));
 
@@ -476,7 +516,7 @@ app.get('/api/users/:username/full', optionalUser, handle((req, res) => {
       (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
       (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count,
       EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) AS liked
-    FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? ORDER BY p.created_at DESC LIMIT 60`).all(me, user.id);
+    FROM posts p JOIN users u ON u.id = p.user_id WHERE p.user_id = ? AND p.deleted_at IS NULL ORDER BY p.created_at DESC LIMIT 60`).all(me, user.id);
   const followers = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE followee_id = ?').get(user.id).c;
   const following = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE follower_id = ?').get(user.id).c;
   const isFollowing = me ? Boolean(db.prepare('SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?').get(me, user.id)) : false;
@@ -555,6 +595,7 @@ app.post('/api/me/password', requireAuth, handle((req, res) => {
   if (next.length < 4) return res.status(400).json({ error: 'Yeni şifre en az 4 karakter olmalı.' });
   const { hash, salt } = hashPassword(next);
   db.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?').run(hash, salt, req.user.id);
+  audit(req.user.id, 'password_changed', req);
   const token = parseCookies(req.headers.cookie).sid || '';
   db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(req.user.id, token);
   res.json({ ok: true });
@@ -679,6 +720,12 @@ app.get('/api/export', requireAuth, handle((req, res) => {
 /* Otomatik silme (her saat) */
 function cleanup() {
   const stamp = now();
+  // 30 günden eski çöp kutusundaki gönderiler → kalıcı sil
+  const oldTrash = db.prepare('SELECT media_file, poster_file FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < ?').all(stamp - 30 * 24 * 60 * 60 * 1000);
+  for (const p of oldTrash) { removeFile(p.media_file); removeFile(p.poster_file); }
+  db.prepare('DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < ?').run(stamp - 30 * 24 * 60 * 60 * 1000);
+  // 180 günden eski güvenlik kayıtları
+  db.prepare('DELETE FROM audit_logs WHERE created_at < ?').run(stamp - 180 * 24 * 60 * 60 * 1000);
   // 30 günden eski bildirimler
   db.prepare('DELETE FROM notifications WHERE created_at < ?').run(stamp - 30 * 24 * 60 * 60 * 1000);
   // 90 günden eski oturumlar
