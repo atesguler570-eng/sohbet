@@ -19,8 +19,16 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
   }
   function hash(p, salt) { return btoa(salt + ':' + p); }
 
-  // İlk kurulum: demo hesaplar
   let db = loadDB();
+
+  // Otomatik silme: 30 günden eski çöp kutusu & 30 günden eski bildirimler
+  try {
+    if (db && db.posts) db.posts = db.posts.filter(p => !p.deletedAt || (now() - p.deletedAt) < 30 * 24 * 60 * 60 * 1000);
+    if (db && db.notifications) db.notifications = db.notifications.filter(n => (now() - n.createdAt) < 30 * 24 * 60 * 60 * 1000);
+    saveDB(db);
+  } catch {}
+
+  // İlk kurulum: demo hesaplar
   if (!db) {
     const salt = 'localsalt';
     db = {
@@ -173,19 +181,19 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
       if (c) { c.lastRead = c.lastRead || {}; c.lastRead[me.id] = now(); }
       return { ok: true };
     },
-    'GET /api/feed': (u, me) => ({ posts: u.posts.slice().sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me)) }),
-    'GET /api/reels': (u, me) => ({ posts: u.posts.filter(p => p.mediaType === 'video').slice().sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me)) }),
+    'GET /api/feed': (u, me) => ({ posts: u.posts.filter(p => !p.deletedAt).slice().sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me)) }),
+    'GET /api/reels': (u, me) => ({ posts: u.posts.filter(p => p.mediaType === 'video' && !p.deletedAt).slice().sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me)) }),
     'GET /api/search': (u, me, q) => {
       const query = String(q.q || '').toLowerCase();
       if (!query) return { users: [], posts: [] };
       const users = u.users.filter(x => x.id !== me.id && (x.username.includes(query) || x.displayName.toLowerCase().includes(query))).map(publicUser);
-      const posts = u.posts.filter(p => (p.caption || '').toLowerCase().includes(query)).sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me));
+      const posts = u.posts.filter(p => !p.deletedAt && (p.caption || '').toLowerCase().includes(query)).sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me));
       return { users, posts };
     },
     'GET /api/users/:username': (u, me, b, params) => {
       const target = u.users.find(x => x.username === String(params.username).toLowerCase());
       if (!target) throw { status: 404, data: { error: 'Kullanıcı bulunamadı.' } };
-      const posts = u.posts.filter(p => p.userId === target.id).sort((a, b) => b.createdAt - a.createdAt);
+      const posts = u.posts.filter(p => !p.deletedAt && p.userId === target.id).sort((a, b) => b.createdAt - a.createdAt);
       const followers = u.follows.filter(f => f.followeeId === target.id).length;
       const following = u.follows.filter(f => f.followerId === target.id).length;
       const isFollowing = me ? u.follows.some(f => f.followerId === me.id && f.followeeId === target.id) : false;
@@ -207,9 +215,20 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
     },
     'DELETE /api/posts/:id': (u, me, b, params) => {
       const p = u.posts.find(p => p.id === Number(params.id));
-      if (p && p.userId === me.id) u.posts = u.posts.filter(x => x !== p);
+      if (p && p.userId === me.id) p.deletedAt = now();
       return { ok: true };
     },
+    'GET /api/trash': (u, me) => ({ posts: u.posts.filter(p => p.userId === me.id && p.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt).map(p => postJson(u, p, me)) }),
+    'POST /api/posts/:id/restore': (u, me, b, params) => {
+      const p = u.posts.find(p => p.id === Number(params.id));
+      if (p && p.userId === me.id) delete p.deletedAt;
+      return { ok: true };
+    },
+    'DELETE /api/trash/:id': (u, me, b, params) => {
+      u.posts = u.posts.filter(p => !(p.id === Number(params.id) && p.userId === me.id));
+      return { ok: true };
+    },
+    'GET /api/audit': () => ({ logs: [] }),
     'POST /api/posts/:id/like': (u, me, b, params) => {
       const postId = Number(params.id);
       const existing = u.likes.find(l => l.userId === me.id && l.postId === postId);
@@ -225,7 +244,7 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
       else u.saved.push({ userId: me.id, postId, createdAt: now() });
       return { saved: !existing };
     },
-    'GET /api/saved': (u, me) => ({ posts: u.posts.filter(p => u.saved.some(s => s.userId === me.id && s.postId === p.id)).sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me)) }),
+    'GET /api/saved': (u, me) => ({ posts: u.posts.filter(p => !p.deletedAt && u.saved.some(s => s.userId === me.id && s.postId === p.id)).sort((a, b) => b.createdAt - a.createdAt).map(p => postJson(u, p, me)) }),
     'GET /api/posts/:id/comments': (u, me, b, params) => {
       const postId = Number(params.id);
       const comments = u.comments.filter(c => c.postId === postId).sort((a, b) => a.createdAt - b.createdAt).map(c => ({ id: c.id, text: c.text, createdAt: c.createdAt, author: publicUser(u.users.find(x => x.id === c.userId)) }));
