@@ -58,7 +58,9 @@
 </nav>
 
 <div class="view" id="viewFeed" data-view="feed" style="display:none;">
-  <div class="view-head"><h2>Keşfet</h2><input id="feedSearch" placeholder="Ara..." style="width:160px;padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);outline:none;" /><button class="btn" style="width:auto;padding:6px 12px;" onclick="openUpload()">+ Paylaş</button></div>
+  <div class="view-head"><h2>Keşfet</h2><input id="feedSearch" placeholder="Ara veya #etiket..." style="width:160px;padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);outline:none;" /><button class="btn" style="width:auto;padding:6px 12px;" onclick="openUpload()">+ Paylaş</button></div>
+  <div id="chipBar" style="display:flex;gap:6px;overflow-x:auto;padding:8px 12px;"></div>
+  <div id="trendingBar" style="display:flex;gap:6px;overflow-x:auto;padding:0 12px 8px;color:var(--muted);font-size:12px;"></div>
   <div class="feed-grid" id="feedGrid"></div>
 </div>
 
@@ -113,6 +115,7 @@
       <button class="btn" style="width:auto;padding:6px 16px;" onclick="submitComment()">Gönder</button>
     </div>
     <button class="btn secondary" style="margin-top:6px;" onclick="closeComments()">Kapat</button>
+    <button class="btn secondary" style="margin-top:6px;" onclick="reportPost()">🚩 Şikayet et</button>
   </div>
 </div>
 <div class="modal" id="groupModal" style="display:none;">
