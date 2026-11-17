@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>Sohbet</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-head">
+      <div class="title">Sohbet</div>
+      <button class="icon-btn" id="newChatBtn" title="Yeni sohbet">+</button>
+      <button class="icon-btn" id="settingsBtn" title="Ayarlar">⚙</button>
+      <button class="icon-btn" id="logoutBtn" title="Çıkış">⎋</button>
+    </div>
+    <div class="search-box">
+      <input id="searchInput" placeholder="Sohbet veya kişi ara..." />
+    </div>
+    <div class="conv-list" id="convList"></div>
+  </aside>
+  <div class="overlay" id="overlay"></div>
+  <main class="chat" id="chat">
+    <div class="chat-head" id="chatHead" style="display:none;">
+      <button class="icon-btn back-btn" id="backBtn">←</button>
+      <div class="conv-avatar" id="chatAvatar"></div>
+      <div>
+        <div class="name" id="chatName"></div>
+        <div class="sub" id="chatSub"></div>
+      </div>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="typing" id="typing"></div>
+    <div class="input-bar" id="inputBar" style="display:none;">
+      <button class="attach" id="attachBtn" title="Dosya ekle">📎</button>
+      <input type="file" id="fileInput" hidden accept="image/*,video/*,.pdf,.txt" />
+      <textarea id="msgInput" rows="1" placeholder="Mesaj yaz..."></textarea>
+      <button class="send" id="sendBtn">➤</button>
+    </div>
+    <div class="empty-state" id="emptyState">
+      <div>
+        <div style="font-size:48px;">💬</div>
+        <div style="margin-top:8px;">Bir sohbet seç veya yeni sohbet başlat</div>
+        <button class="btn" style="margin-top:14px;max-width:200px;" onclick="document.getElementById('sidebar').classList.add('open')">Sohbetler</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<nav class="bottom-nav">
+  <button data-view="chat" class="active"><img src="/icon-chat.svg" alt="Sohbet" /><span>Sohbet</span></button>
+  <button data-view="feed"><img src="/icon-explore.svg" alt="Keşfet" /><span>Keşfet</span></button>
+  <button data-view="reels"><img src="/icon-reels.svg" alt="Reels" /><span>Reels</span></button>
+  <button data-view="profile"><img src="/icon-profile.svg" alt="Profil" /><span>Profil</span></button>
+</nav>
+
+<div class="view" id="viewFeed" data-view="feed" style="display:none;">
+  <div class="view-head"><h2>Keşfet</h2><input id="feedSearch" placeholder="Ara..." style="width:160px;padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);outline:none;" /><button class="btn" style="width:auto;padding:6px 12px;" onclick="openUpload()">+ Paylaş</button></div>
+  <div class="feed-grid" id="feedGrid"></div>
+</div>
+
+<div class="view" id="viewReels" data-view="reels" style="display:none;">
+  <div class="reels-wrap" id="reelsWrap"></div>
+</div>
+
+<div class="view" id="viewProfile" data-view="profile" style="display:none;">
+  <div id="profileBox"></div>
+</div>
+
+<!-- Auth modal -->
+<div class="modal" id="authModal">
+  <div class="modal-card">
+    <div style="text-align:center;margin-bottom:16px;">
+      <svg width="64" height="64" viewBox="0 0 512 512" style="border-radius:14px;">
+        <defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ff0050"/><stop offset="100%" stop-color="#6c7bff"/></linearGradient></defs>
+        <rect width="512" height="512" rx="112" fill="url(#g2)"/>
+        <path d="M150 170h212v44H150zm0 66h160v44H150zm0 66h212v44H150z" fill="#fff" opacity="0.9"/>
+      </svg>
+      <h2 id="authTitle" style="margin-top:8px;">Giriş</h2>
+    </div>
+    <div class="field"><label>Kullanıcı adı</label><input id="authUsername" autocomplete="username" /></div>
+    <div class="field"><label>Şifre</label><input id="authPassword" type="password" autocomplete="current-password" /></div>
+    <div class="field" id="displayNameField" style="display:none;"><label>Görünen ad (isteğe bağlı)</label><input id="authDisplayName" /></div>
+    <button class="btn" id="authSubmit">Giriş yap</button>
+    <span class="link" id="authSwitch">Hesabın yok mu? Kayıt ol</span>
+    <div id="authError" style="color:#ff5a6b;font-size:13px;margin-top:8px;text-align:center;"></div>
+  </div>
+</div>
+
+<!-- New chat modal -->
+<div class="modal" id="newChatModal" style="display:none;">
+  <div class="modal-card">
+    <h2>Yeni sohbet</h2>
+    <div class="field"><input id="userSearch" placeholder="Kişi ara..." /></div>
+    <div style="max-height:300px;overflow-y:auto;" id="userPickList"></div>
+    <div style="margin-top:10px;">
+      <button class="btn secondary" id="newGroupBtn">Grup oluştur</button>
+      <button class="btn secondary" id="closeNewChat" style="margin-top:6px;">Kapat</button>
+    </div>
+  </div>
+</div>
+
+<div class="view" id="viewSettings" style="display:none;"><div id="settingsContent" style="max-width:700px;margin:0 auto;padding:16px;"></div></div>
+<div class="modal" id="commentModal" style="display:none;">
+  <div class="modal-card" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column;">
+    <h2 id="commentTitle">Yorumlar</h2>
+    <div id="commentList" style="flex:1;overflow-y:auto;max-height:50vh;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;">
+      <input id="commentInput" placeholder="Yorum yaz..." style="flex:1;padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg3);outline:none;" />
+      <button class="btn" style="width:auto;padding:6px 16px;" onclick="submitComment()">Gönder</button>
+    </div>
+    <button class="btn secondary" style="margin-top:6px;" onclick="closeComments()">Kapat</button>
+  </div>
+</div>
+<div class="modal" id="groupModal" style="display:none;">
+  <div class="modal-card">
+    <h2>Grup oluştur</h2>
+    <div class="field"><label>Grup adı</label><input id="groupName" /></div>
+    <div class="field"><label>Üyeler (virgülle kullanıcı adı)</label><input id="groupMembers" placeholder="ayse, mert" /></div>
+    <button class="btn" id="createGroupBtn">Oluştur</button>
+    <button class="btn secondary" id="closeGroup" style="margin-top:6px;">İptal</button>
+  </div>
+</div>
+
+<script src="/api-local.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
