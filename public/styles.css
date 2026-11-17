@@ -162,7 +162,17 @@ input, textarea { font: inherit; color: inherit; }
 .reel .overlay { bottom: 80px; left: 12px; right: 60px; }
 .profile-cover { height: 160px; background: #111; border-radius: 0; margin-bottom: 0; }
 .app { background: linear-gradient(160deg, #141622 0%, #0f1115 100%); }
+.settings-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 8px; align-self: start; }
+.set-nav { text-align: left; padding: 10px 12px; border-radius: 10px; background: var(--bg3); color: var(--text); font-size: 13px; }
+.set-nav.active { background: var(--accent); color: #fff; }
 .settings-h { font-size: 18px; margin: 18px 0 8px; color: var(--accent2); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.settings-body { min-width: 0; }
+@media (max-width: 760px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav { flex-direction: row; overflow-x: auto; position: static; }
+  .set-nav { white-space: nowrap; }
+}
 .set-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .set-row label { font-size: 14px; }
 .toggle { width: 44px; height: 24px; background: var(--bg3); border-radius: 999px; position: relative; transition: background .2s; }
