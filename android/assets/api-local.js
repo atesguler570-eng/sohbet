@@ -276,7 +276,7 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
       if (b.accent) { /* yoksay */ }
       return { user: publicUser(usr) };
     },
-    'GET /api/settings': (u, me) => ({ settings: u.settings || {} }),
+    'GET /api/settings': (u, me) => ({ settings: { autoUpdate: true, ...(u.settings || {}) } }),
     'PATCH /api/settings': (u, me, b) => {
       u.settings = u.settings || {};
       Object.assign(u.settings, b);
